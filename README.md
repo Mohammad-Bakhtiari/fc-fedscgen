@@ -82,6 +82,15 @@ Here we describe each state, aligned with the states.py script:
 The transitions between these states are handled automatically by the FedscGen application based on the conditions met during the execution.
 
 
+## Output
+After the application completes its execution, the results are available in FeatureCloud platform which includes the following items:
+
+* Corrected data: The corrected data in `H5Ad` format.
+* Trained model: The trained model in `pth` format.
+* Mean latent genes: The mean latent genes for each cell type in `csv` format.
+
+Using the model and mean latent genes, the participants can correct their data locally.
+
 ## Troubleshooting and Support
 
 If you encounter any issues, first ensure that your config.yaml is properly formatted and that all paths and keys are correct. For additional support, [contact details or link to support resources].
