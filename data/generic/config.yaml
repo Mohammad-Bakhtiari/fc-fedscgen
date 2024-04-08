@@ -1,0 +1,24 @@
+fedscgen:
+  workflow: "train" # train or correction
+  data:
+    adata: MHSPC.h5ad
+    batch_key: batch
+    cell_key: cell_type
+
+  model:
+    init_model: model
+    ref_model: model.pth
+    hidden_layer_sizes: "800,800"
+    z_dimension: 10
+
+  train:
+    lr: 0.01
+    epoch: 3
+    batch_size: 32
+    early_stopping:
+      early_stopping_metric: "val_loss"
+      threshold: 0
+      reduce_lr: True
+      lr_patience: 13
+      lr_factor: 0.1
+    n_rounds: 2
