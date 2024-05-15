@@ -1,10 +1,7 @@
 import random
 
 SEED = 42
-random.seed(SEED)
 import numpy as np
-
-np.random.seed(SEED)
 
 import os
 from collections import Counter
@@ -29,10 +26,20 @@ from sklearn.preprocessing import LabelBinarizer
 from sklearn.cluster import KMeans
 from itertools import combinations
 import copy
+from collections import Counter
 
-torch.manual_seed(SEED)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(SEED)
+def set_seed(seed=SEED):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True)
+
+
+set_seed(SEED)
 
 
 def seed_worker(worker_id):
@@ -52,7 +59,7 @@ def get_cuda_device(device_index: int):
 
 def combine_test_loaders(loaders):
     combined_dataset = ConcatDataset([dl.dataset for dl in loaders])
-    return DataLoader(combined_dataset, batch_size=32, shuffle=True, worker_init_fn=seed_worker, num_workers=4)
+    return DataLoader(combined_dataset, batch_size=32, shuffle=False, worker_init_fn=seed_worker, num_workers=4)
 
 
 class Data:
@@ -141,20 +148,22 @@ def encode_labels(y):
     return le.fit_transform(y)
 
 
-def evaluate(model, val, criterion, num_classes):
+def evaluate(model, val, criterion, num_classes, device):
     # Validation loop
     model.eval()
     val_loss = 0.0
     total = 0
-    auc = torchmetrics.AUROC(num_classes=num_classes, average="macro", task='multiclass')
-    acc = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes)
+    auc = torchmetrics.AUROC(num_classes=num_classes, average="macro", task='multiclass').to(device)
+    acc = torchmetrics.Accuracy(task="multiclass", num_classes=num_classes).to(device)
     auc.reset()
     acc.reset()
     with torch.no_grad():
         for batch_x, batch_y in val:
             d_size = batch_y.size(0)
-            outputs = model(batch_x.float())
-            loss = criterion(outputs, batch_y.long())
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
+            outputs = model(batch_x)
+            loss = criterion(outputs, batch_y)
             val_loss += loss.item() * d_size
             acc(outputs.argmax(dim=1), batch_y)
             auc(F.softmax(outputs, dim=1), batch_y)
@@ -167,15 +176,16 @@ def evaluate(model, val, criterion, num_classes):
 
 
 def classify_celltypes(x_train, y_train, x_test, y_test, epochs, lr, batch_size, n_classes, init_model, model_name,
-                       hidden_size):
+                       hidden_size, device):
     if model_name.lower() == "knn":
         return train_knn(x_train, y_train, x_test, y_test)
     elif model_name.lower() == "kmeans":
         return train_kmeans(x_train, y_train, x_test, y_test, n_classes)
     test_loader, train_loader = load_dataloaders(x_train, y_train, x_test, y_test, batch_size)
-    criterion, model, optimizer = instantiate_model(x_test.shape[1], n_classes, lr, init_model, model_name, hidden_size)
+    criterion, model, optimizer = instantiate_model(x_test.shape[1], n_classes, lr, init_model, model_name, hidden_size,
+                                                    device)
 
-    return train_classifier(model, train_loader, test_loader, optimizer, criterion, epochs, n_classes)
+    return train_classifier(model, train_loader, test_loader, optimizer, criterion, epochs, n_classes, device)
 
 
 def train_knn(x_train, y_train, x_test, y_test):
@@ -249,7 +259,7 @@ def testset_combination(batches, n_batch_out):
     return combinations_list
 
 
-def train_classifier(model, train, test, optimizer, criterion, epochs, n_classes):
+def train_classifier(model, train, test, optimizer, criterion, epochs, n_classes, device):
     # Train the model
     acc_scores = []
     auc_scores = []
@@ -261,11 +271,11 @@ def train_classifier(model, train, test, optimizer, criterion, epochs, n_classes
         model.train()
         loss = 0.0
         for batch_x, batch_y in train:
-            loss = train_on_batch(batch_x, batch_y, criterion, model, optimizer, loss)
+            loss = train_on_batch(batch_x.to(device), batch_y.to(device), criterion, model, optimizer, loss)
         loss /= len(train.dataset)
         train_loss.append(loss)
         if test:
-            val_loss, val_acc, val_auc = evaluate(model, test, criterion, n_classes)
+            val_loss, val_acc, val_auc = evaluate(model, test, criterion, n_classes, device)
             test_loss.append(val_loss)
             acc_scores.append(val_acc)
             auc_scores.append(val_auc)
@@ -348,7 +358,7 @@ def normalize_data(data, method):
         raise ValueError(f"Unknown normalization method: {method}")
 
 
-def instantiate_model(input_size, n_classes, lr, init_model, model_name, hidden_size):
+def instantiate_model(input_size, n_classes, lr, init_model, model_name, hidden_size, device):
     # Instantiate the model, loss function, and optimizer
     if model_name.lower() == "mlp":
         model = MLP(input_size=input_size, hidden_size=64, output_size=n_classes)
@@ -363,13 +373,13 @@ def instantiate_model(input_size, n_classes, lr, init_model, model_name, hidden_
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    return criterion, model, optimizer
+    return criterion, model.to(device), optimizer
 
 
 def load_dataloaders(x_train, y_train, x_test, y_test, batch_size=32):
     # Convert the data to PyTorch tensors and create DataLoader objects
     train_dataset = TensorDataset(torch.tensor(x_train), torch.tensor(y_train))
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True,
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, drop_last=True,
                               worker_init_fn=seed_worker, num_workers=4)
     test_loader = None
     if len(x_test) > 0:
@@ -475,11 +485,11 @@ def get_latent(adata, latent):
 def calc_obsm_pca(adata_file_paths, n_components=50, common_space=False):
     adata_files = {}
     if common_space:
-        pca = PCA(n_components=n_components)
+        pca = PCA(n_components=n_components, svd_solver='full')
     for counter, (key, path) in enumerate(adata_file_paths.items()):
         adata = anndata.read_h5ad(path)
         if not common_space:
-            pca = PCA(n_components=n_components)
+            pca = PCA(n_components=n_components, svd_solver='full')
             pca.fit(adata.X)
         elif counter == 0:
             pca.fit(adata.X)
@@ -531,15 +541,18 @@ def drop(data, cell_key, drop_cell_values):
 
 
 def aggregate_batch_sizes(batch_sizes: dict):
+    shared = Counter(celltype for client in batch_sizes.values() for celltype in client)
+    shared = {celltype for celltype, count in shared.items() if count > 1}
     max_client = {}
     for client_id, batch in batch_sizes.items():
         for cell_type, size in batch.items():
-            if cell_type in max_client:
-                dominant_batch_size = batch_sizes[max_client[cell_type]][cell_type]
-                if size > dominant_batch_size:
+            if cell_type in shared:
+                if cell_type in max_client:
+                    dominant_batch_size = batch_sizes[max_client[cell_type]][cell_type]
+                    if size > dominant_batch_size:
+                        max_client[cell_type] = client_id
+                else:
                     max_client[cell_type] = client_id
-            else:
-                max_client[cell_type] = client_id
     clients_majority_cell_batch = {}
     for cell_type, client_id in max_client.items():
         if client_id in clients_majority_cell_batch:
@@ -607,15 +620,14 @@ def set_w(model, weights):
 
 
 def abs_diff_centrally_corrected(centrally_corrected, fed_corrected, fed_corrected_with_new_studies):
-    abs_diff = np.abs(centrally_corrected.X - fed_corrected.X)
+    if fed_corrected_with_new_studies is None:
+        abs_diff = np.abs(centrally_corrected.X - fed_corrected.X)
+        indices = ["Without new studies"]
+    else:
+        abs_diff = np.abs(centrally_corrected.X - fed_corrected_with_new_studies.X)
+        indices = ["With new studies"]
     rows = [{"Mean": np.mean(abs_diff), "Standard deviation": np.std(abs_diff), "Maximum": np.max(abs_diff),
              "Minimum": np.min(abs_diff), "Sum": np.sum(abs_diff)}]
-    indices = ["Without new studies"]
-    if fed_corrected_with_new_studies is not None:
-        abs_diff = np.abs(centrally_corrected.X - fed_corrected_with_new_studies.X)
-        rows.append({"Mean": np.mean(abs_diff), "Standard deviation": np.std(abs_diff), "Maximum": np.max(abs_diff),
-                     "Minimum": np.min(abs_diff), "Sum": np.sum(abs_diff)})
-        indices.append("With new studies")
+
     df = pd.DataFrame(rows, index=indices)
     return df
-
