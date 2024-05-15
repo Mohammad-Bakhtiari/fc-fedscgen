@@ -20,7 +20,6 @@ Modifications made to the original work are licensed under the Apache License, V
 Original work is licensed under the BSD 3-Clause License.
 
 """
-import fedscgen.__init__
 from fedscgen.utils import seed_worker
 from anndata import AnnData
 from scarches.models.scgen.vaearith import vaeArith
@@ -80,7 +79,7 @@ class CustomTrainer(vaeArithTrainer):
 
     """
 
-    def __init__(self, model, adata, train_frac: float = 0.9, batch_size=32, shuffle=True,
+    def __init__(self, model, adata, train_frac: float = 0.9, batch_size=32, shuffle=False,
                  early_stopping_kwargs: dict = {
                      "early_stopping_metric": "val_loss",
                      "threshold": 0,
@@ -145,7 +144,6 @@ class CustomTrainer(vaeArithTrainer):
 
         self.optim = torch.optim.Adam(
             params, lr=lr, eps=eps)  # consider changing the param. like weight_decay, eps, etc.
-
         loss_hist = []
 
         for self.epoch in range(self.n_epochs):
@@ -250,6 +248,29 @@ class CustomVAEArith(vaeArith):
     def __init__(self, x_dim: int, **kwargs):
         super().__init__(x_dim, **kwargs)
 
+    def _sample_z(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
+        """
+            Samples from standard Normal distribution with shape [size, z_dim] and
+            applies re-parametrization trick. It is actually sampling from latent
+            space distributions with N(mu, var) computed by the Encoder.
+
+        Parameters
+            ----------
+        mean:
+        Mean of the latent Gaussian
+            log_var:
+        Standard deviation of the latent Gaussian
+            Returns
+            -------
+        Returns Torch Tensor containing latent space encoding of 'x'.
+        The computed Tensor of samples with shape [size, z_dim].
+        """
+        std = torch.exp(0.5 * log_var)
+        if not self.training:
+            torch.manual_seed(42)
+        eps = torch.randn_like(std)
+        return mu + std * eps
+
     def get_latent(self, data: torch.Tensor) -> torch.Tensor:
         """ Map `data` in to the latent space. It uses PyTorch Dataloader to
          feed data in encoder part of VAE and compute the latent space coordinates for each sample in data.
@@ -257,10 +278,22 @@ class CustomVAEArith(vaeArith):
         print("Getting latent space coordinates...")
         if not torch.is_tensor(data):
             data = torch.tensor(data)
-        data = data.to(next(self.encoder.parameters()).device)
-        with torch.no_grad():
-            mu, logvar = self.encoder(data)
-            latent = self._sample_z(mu, logvar)
+        if len(data) < 100000:
+            data = data.to(next(self.encoder.parameters()).device)
+            with torch.no_grad():
+                mu, logvar = self.encoder(data)
+                latent = self._sample_z(mu, logvar)
+            return latent
+        for i in range(0, len(data), 1000):
+            data_ = data[i:i + 1000]
+            data_ = data_.to(next(self.encoder.parameters()).device)
+            with torch.no_grad():
+                mu, logvar = self.encoder(data_)
+                latent_ = self._sample_z(mu, logvar)
+            if i == 0:
+                latent = latent_
+            else:
+                latent = torch.cat((latent, latent_), 0)
         return latent
 
     def reconstruct(self, data, use_data=False) -> torch.Tensor:
@@ -275,9 +308,17 @@ class CustomVAEArith(vaeArith):
             latent = data
         else:
             latent = self.get_latent(data)
-        latent = latent.to(next(self.decoder.parameters()).device)
-        with torch.no_grad():
-            return self.decoder(latent)
+        if len(latent) < 100000:
+            latent = latent.to(next(self.decoder.parameters()).device)
+            with torch.no_grad():
+                return self.decoder(latent)
+        for i in range(0, len(latent), 100):
+            latent_ = latent[i:i + 100]
+            latent_ = latent_.to(next(self.decoder.parameters()).device)
+            with torch.no_grad():
+                rec = self.decoder(latent_)
+                reconstructions = rec if i == 0 else torch.cat((reconstructions, rec), 0)
+        return reconstructions
 
 
 class CustomScGen(sca.models.scgen):
@@ -334,6 +375,6 @@ class CustomScGen(sca.models.scgen):
 
         """
         if self.trainer is None:
-            self.trainer = CustomTrainer(self.model, self.adata, batch_size, device=self.device, **kwargs)
+            self.trainer = CustomTrainer(self.model, self.adata, batch_size=batch_size, device=self.device, **kwargs)
         self.trainer.train(n_epochs, lr, eps)
         self.is_trained_ = True
