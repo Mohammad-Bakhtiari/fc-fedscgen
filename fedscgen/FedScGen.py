@@ -23,6 +23,7 @@ from functools import partial
 from copy import deepcopy
 import scarches as sca
 from fedscgen.scgen_utils import CustomScGen, TORCH_DTYPE
+from fedscgen.utils import set_seed
 from fedscgen.plots import single_plot
 import warnings
 from numba.core.errors import NumbaDeprecationWarning  # Adjust based on actual availability
@@ -140,7 +141,7 @@ class FedScGen(ScGen):
         """
         self.round += 1
         self.set_weights(global_weights)
-        self.train(n_epochs=self.epoch, early_stopping_kwargs=self.stopping, lr=self.lr)
+        self.train(n_epochs=self.epoch, early_stopping_kwargs=self.stopping, lr=self.lr, batch_size=self.batch_size)
         return self.get_weights(), self.n_samples
 
     def find_batch_size(self):
@@ -153,7 +154,7 @@ class FedScGen(ScGen):
             The number of cells in each batch
         """
         self.adata_latent = self.get_latent_adata(self.adata)
-        cell_batch_size = {cell_type: len(self.adata_latent.obs[self.cell_key] == cell_type)
+        cell_batch_size = {cell_type: self.adata[self.adata_latent.obs[self.cell_key] == cell_type].shape[0]
                            for cell_type in self.unique_cell_types
                            }
         return cell_batch_size
@@ -220,7 +221,7 @@ class FedScGen(ScGen):
                     not_shared_ct.append(temp_cell)
         return shared_ct, not_shared_ct
 
-    def remove_batch_effect(self, adata, max_batch_avg, return_latent=True):
+    def remove_batch_effect(self, max_batch_avg, return_latent=True):
         """ Remove the batch effect in local dataset
         Parameters
         ----------
@@ -235,8 +236,11 @@ class FedScGen(ScGen):
         `~anndata.AnnData`
             adata of corrected gene expression in adata.X and corrected latent space in adata.obsm["latent_corrected"].
         """
-        adata_latent = self.get_latent_adata(adata)
-        shared_ct, not_shared_ct = self.apply_delta(adata_latent, max_batch_avg)
+        set_seed()
+        if self.adata_latent is None:
+            print("No latent representation found. Getting latent representation")
+            self.get_latent_adata(self.adata)
+        shared_ct, not_shared_ct = self.apply_delta(self.adata_latent, max_batch_avg)
         all_shared_ann = anndata.AnnData.concatenate(*shared_ct, batch_key="concat_batch", index_unique=None)
         if "concat_batch" in all_shared_ann.obs.columns:
             del all_shared_ann.obs["concat_batch"]
@@ -252,7 +256,7 @@ class FedScGen(ScGen):
                 del all_corrected_data.obs["concat_batch"]
 
             corrected = sc.AnnData(self.reconstruct(all_corrected_data.X, use_data=True), all_corrected_data.obs)
-        return self.finalize_batch_correction(adata, corrected, return_latent)
+        return self.finalize_batch_correction(self.adata, corrected, return_latent)
 
     def finalize_batch_correction(self, adata, corrected, return_latent):
         """ Finalize the batch correction
