@@ -7,25 +7,29 @@ import pandas as pd
 from fedscgen.FedScGen import FedScGen
 from fedscgen.utils import aggregate, aggregate_batch_sizes
 
-
 INPUT_DIR = '/mnt/input'
 OUTPUT_DIR = '/mnt/output'
 
 
 @app_state('initial')
 class InitialState(AppState):
+    config = None
+    model = None
+    global_model = None
+    global_weights = None
 
     def register(self):
         self.register_transition('Local Training', label='Start training')
         self.register_transition('Local Batch Sizes', label='Start correction')
 
-
     def run(self):
         self.config = bios.read(os.path.join(INPUT_DIR, 'config.yaml'))['fedscgen']
         self.store('config', self.config)
         kwargs = self.read_data()
-
-        if self.config['workflow'] == 'train':
+        workflow = self.config['workflow']
+        self.store('workflow', workflow)
+        assert workflow in ['train', 'correction'], f'Invalid workflow type: {workflow}'
+        if workflow == 'train':
             self.model = FedScGen(**kwargs)
             self.store('model', self.model)
             if self.is_coordinator:
@@ -36,10 +40,10 @@ class InitialState(AppState):
                 self.broadcast_data(self.global_weights, memo='init_weights', send_to_self=False)
                 self.store('global_weights', self.global_weights)
             return 'Local Training'
-        elif self.config['workflow'] == 'correction':
-            return 'Local Batch Sizes'
         else:
-            raise ValueError('Invalid workflow type: {}'.format(self.config['workflow']))
+            self.model = FedScGen(init_model_path=self.config['model']['init_model'], **kwargs)
+            self.store('model', self.model)
+            return 'Local Batch Sizes'
 
     def read_data(self):
         adata = anndata.read_h5ad(os.path.join(INPUT_DIR, self.config['data']['adata']))
@@ -56,14 +60,15 @@ class InitialState(AppState):
                   "batch_size": self.config['train']['batch_size'],
                   "stopping": {**self.config['train']['early_stopping']},
                   "overwrite": False,
-                    "device": 'cpu'
+                  "device": 'cpu'
                   }
-
         return kwargs
 
 
 @app_state('Local Training')
 class LocalTraining(AppState):
+    n_rounds = 0
+    model = None
 
     def register(self):
         self.register_transition('Model Aggregation', role=Role.COORDINATOR, label='Collect local updates')
@@ -73,10 +78,8 @@ class LocalTraining(AppState):
         # We declare that 'terminal' state is accessible from the 'initial' state.
 
     def run(self):
-        if not hasattr(self, 'model'):
+        if self.model is None:
             self.model = self.load('model')
-        if not hasattr(self, 'n_rounds'):
-            self.n_rounds = 0
         self.n_rounds += 1
         finished = False
         if self.is_coordinator:
@@ -102,16 +105,13 @@ class LocalTraining(AppState):
 
 @app_state('Model Aggregation', role=Role.COORDINATOR)
 class ModelAggregation(AppState):
+    n_rounds = 0
 
     def register(self):
         self.register_transition('Local Training', role=Role.COORDINATOR, label='Updated weights')
         self.register_transition('Local Batch Sizes', role=Role.COORDINATOR, label='Start correction')
 
-        # We declare that 'terminal' state is accessible from the 'initial' state.
-
     def run(self):
-        if not hasattr(self, 'n_rounds'):
-            self.n_rounds = 0
         self.n_rounds += 1
         clients_data = self.gather_data(memo=f'local_updates_{self.n_rounds}')
         local_weights = [client_data[0] for client_data in clients_data]
@@ -150,10 +150,9 @@ class DominantBatches(AppState):
         batch_sizes = self.gather_data(memo='Local_Batch_Sizes', )
         batch_sizes = {item[0]: item[1] for item in batch_sizes}
         global_cell_sizes = aggregate_batch_sizes(batch_sizes)
-        self.store('global_cell_sizes', global_cell_sizes.pop(self.id))
+        self.store('dominant_cell_types', global_cell_sizes.pop(self.id))
         for client_id, cell_types in global_cell_sizes.items():
-            self.send_data_to_participant(cell_types, client_id, memo='global_cell_sizes')
-        self.broadcast_data(global_cell_sizes, memo='global_cell_sizes', send_to_self=False)
+            self.send_data_to_participant(cell_types, client_id, memo='dominant_cell_types')
         return 'Latent Genes'
 
 
@@ -165,13 +164,12 @@ class MeanLatentGenes(AppState):
 
     def run(self):
         if self.is_coordinator:
-            global_cell_sizes = self.load('global_cell_sizes')
+            dominant_cell_types = self.load('dominant_cell_types')
         else:
-            global_cell_sizes = self.await_data(memo='global_cell_sizes')
+            dominant_cell_types = self.await_data(memo='dominant_cell_types')
         model = self.load('model')
-        mean_latent_genes = model.avg_local_cells(global_cell_sizes)
+        mean_latent_genes = model.avg_local_cells(dominant_cell_types)
         self.send_data_to_coordinator(mean_latent_genes, memo='mean_latent_genes')
-        self.store('model', model)
         if self.is_coordinator:
             return 'Aggregate Latent Genes'
         return 'Write Results'
@@ -203,10 +201,13 @@ class WriteResults(AppState):
             global_mean_latent_genes = self.load('global_mean_latent_genes')
         else:
             global_mean_latent_genes = self.await_data(memo='global_mean_latent_genes')
-        model.save(os.path.join(OUTPUT_DIR, "trained_model"))
-        adata = self.load('adata')
-        corrected = model.remove_batch_effect(adata, global_mean_latent_genes)
+        if self.load('config')['workflow'] == 'train':
+            model.save(os.path.join(OUTPUT_DIR, "trained_model"))
+        corrected = model.remove_batch_effect(global_mean_latent_genes)
         corrected.write(os.path.join(OUTPUT_DIR, "corrected.h5ad"))
-        df = pd.DataFrame(data=global_mean_latent_genes.values, index=global_mean_latent_genes.keys())
+        columns = list(range(1, self.load('config')['model']['z_dimension'] + 1))
+        df = pd.DataFrame(data=list(global_mean_latent_genes.values()),
+                          columns=columns,
+                          index=list(global_mean_latent_genes.keys()))
         df.to_csv(os.path.join(OUTPUT_DIR, "GLMs.csv"), sep=",", index=True)
         return 'terminal'
