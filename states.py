@@ -152,7 +152,8 @@ class DominantBatches(AppState):
         batch_sizes = self.gather_data(memo='Local_Batch_Sizes', )
         batch_sizes = {item[0]: item[1] for item in batch_sizes}
         global_cell_sizes = aggregate_batch_sizes(batch_sizes)
-        self.store('dominant_cell_types', global_cell_sizes.pop(self.id))
+        self.log(f"Global cell sizes: {global_cell_sizes}")
+        self.store('dominant_cell_types', global_cell_sizes.pop(self.id) if self.id in global_cell_sizes else [])
         for client_id, cell_types in global_cell_sizes.items():
             self.send_data_to_participant(cell_types, client_id, memo='dominant_cell_types')
         return 'Latent Genes'
