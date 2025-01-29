@@ -4,6 +4,7 @@ import bios
 import os
 import anndata
 import pandas as pd
+import shutil
 from fedscgen.FedScGen import FedScGen
 from fedscgen.utils import aggregate, aggregate_batch_sizes
 
@@ -46,6 +47,7 @@ class InitialState(AppState):
             return 'Local Batch Sizes'
 
     def read_data(self):
+        shutil.copy2(os.path.join(INPUT_DIR, self.config['data']['adata']), os.path.join(OUTPUT_DIR, self.config['data']['adata']))
         adata = anndata.read_h5ad(os.path.join(INPUT_DIR, self.config['data']['adata']))
         self.store('adata', adata)
         hidden_sizes = [int(num) for num in self.config['model']['hidden_layer_sizes'].split(",")]
