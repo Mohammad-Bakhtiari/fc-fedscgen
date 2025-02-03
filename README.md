@@ -93,4 +93,4 @@ Using the model and mean latent genes, the participants can correct their data l
 
 ## Troubleshooting and Support
 
-If you encounter any issues, first ensure that your config.yaml is properly formatted and that all paths and keys are correct. For additional support, [contact details or link to support resources].
+If you encounter any issues, first ensure that your config.yaml is properly formatted and that all paths and keys are correct. For additional support, contact mohammad.bakhtiari@uni-hamburg.de.
