@@ -18,13 +18,19 @@ class InitialState(AppState):
     model = None
     global_model = None
     global_weights = None
+    config_file = 'config.yaml'
 
     def register(self):
         self.register_transition('Local Training', label='Start training')
         self.register_transition('Local Batch Sizes', label='Start correction')
 
     def run(self):
-        self.config = bios.read(os.path.join(INPUT_DIR, 'config.yaml'))['fedscgen']
+        if not os.path.exists(os.path.join(INPUT_DIR, self.config_file)):
+            if not os.path.exists(os.path.join(INPUT_DIR, 'config.yml')):
+                raise FileNotFoundError('Config file not found')
+            self.config_file = 'config.yml'
+        self.config_file = os.path.join(INPUT_DIR, self.config_file)
+        self.config = bios.read(self.config_file)['fedscgen']
         self.store('config', self.config)
         kwargs = self.read_data()
         workflow = self.config['workflow']
@@ -47,6 +53,7 @@ class InitialState(AppState):
             return 'Local Batch Sizes'
 
     def read_data(self):
+        shutil.copy2(self.config_file, self.config_file.replace('input', 'output'))
         shutil.copy2(os.path.join(INPUT_DIR, self.config['data']['adata']), os.path.join(OUTPUT_DIR, self.config['data']['adata']))
         adata = anndata.read_h5ad(os.path.join(INPUT_DIR, self.config['data']['adata']))
         self.store('adata', adata)
