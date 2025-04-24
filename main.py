@@ -1,4 +1,13 @@
 from bottle import Bottle
+import tempfile
+
+def safe_del(self):
+    try:
+        self.close()
+    except FileNotFoundError:
+        pass
+
+tempfile._TemporaryFileCloser.__del__ = safe_del
 
 from FeatureCloud.app.api.http_ctrl import api_server
 from FeatureCloud.app.api.http_web import web_server
