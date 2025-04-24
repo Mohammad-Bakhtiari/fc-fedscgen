@@ -32,10 +32,7 @@ class InitialState(AppState):
         self.config_file = os.path.join(INPUT_DIR, self.config_file)
         self.config = bios.read(self.config_file)['fedscgen']
         self.store('config', self.config)
-        kwargs = self.read_data()
-        workflow = self.config['workflow']
-        self.store('workflow', workflow)
-        assert workflow in ['train', 'correction'], f'Invalid workflow type: {workflow}'
+        kwargs, workflow = self.read_data()
         if workflow == 'train':
             self.model = FedScGen(**kwargs)
             self.store('model', self.model)
@@ -57,21 +54,39 @@ class InitialState(AppState):
         shutil.copy2(os.path.join(INPUT_DIR, self.config['data']['adata']), os.path.join(OUTPUT_DIR, self.config['data']['adata']))
         adata = anndata.read_h5ad(os.path.join(INPUT_DIR, self.config['data']['adata']))
         self.store('adata', adata)
-        hidden_sizes = [int(num) for num in self.config['model']['hidden_layer_sizes'].split(",")]
+        train_config = self.config.get('train', {})
+        workflow = self.config['workflow']
+        self.store('workflow', workflow)
+        assert workflow in ['train', 'correction'], f'Invalid workflow type: {workflow}'
+        if not train_config and workflow == 'train':
+            raise ValueError('Training config not found in config file for training workflow')
+        for k,v in train_config.items():
+            assert k in ['n_epochs', 'lr', 'eps', 'batch_size'], f'Invalid training config key: {k}'
+        self.store('smpc', self.config.get('smpc', False))
         kwargs = {"ref_model_path": self.config['model']['ref_model'],
                   "adata": adata,
-                  "hidden_layer_sizes": hidden_sizes,
+                  "hidden_layer_sizes": [int(num) for num in self.config['model']['hidden_layer_sizes'].split(",")],
                   "z_dimension": self.config['model']['z_dimension'],
                   "batch_key": self.config['data']['batch_key'],
                   "cell_key": self.config['data']['cell_key'],
-                  "lr": self.config['train']['lr'],
-                  "epoch": self.config['train']['epoch'],
-                  "batch_size": self.config['train']['batch_size'],
-                  "stopping": {**self.config['train']['early_stopping']},
                   "overwrite": False,
-                  "device": 'cpu'
+                  "device": 'cpu',
+                  "smpc": self.load('smpc'),
+                  "train_hyperparam": train_config
                   }
-        return kwargs
+        kwargs['n_total_samples'] = self.get_total_samples(kwargs['smpc'])
+        return kwargs, workflow
+
+    def get_total_samples(self, smpc):
+        n_local_samples = self.load('adata').X.shape[0]
+        self.send_data_to_coordinator(n_local_samples, memo='n_local_samples', use_smpc=smpc)
+        if self.is_coordinator:
+            n_total_samples = self.aggregate_data(memo='n_local_samples', use_smpc=smpc)
+            self.broadcast_data(n_total_samples, memo= 'n_total_samples', send_to_self=False)
+        else:
+            n_total_samples = self.await_data(memo='n_total_samples')
+        self.log(f"Total number of samples: {n_total_samples}")
+        return n_total_samples
 
 
 @app_state('Local Training')
@@ -105,7 +120,7 @@ class LocalTraining(AppState):
 
         self.update(f"Round {self.n_rounds} of training ...")
         local_updates = self.model.local_update(global_weights)
-        self.send_data_to_coordinator(local_updates, memo=f'local_updates_{self.n_rounds}')
+        self.send_data_to_coordinator(local_updates, memo=f'local_updates_{self.n_rounds}', use_smpc=self.load('smpc'))
 
         if self.is_coordinator:
             return 'Model Aggregation'
@@ -115,6 +130,7 @@ class LocalTraining(AppState):
 @app_state('Model Aggregation', role=Role.COORDINATOR)
 class ModelAggregation(AppState):
     n_rounds = 0
+    model_param_keys = {}
 
     def register(self):
         self.register_transition('Local Training', role=Role.COORDINATOR, label='Updated weights')
@@ -122,12 +138,10 @@ class ModelAggregation(AppState):
 
     def run(self):
         self.n_rounds += 1
-        clients_data = self.gather_data(memo=f'local_updates_{self.n_rounds}')
-        local_weights = [client_data[0] for client_data in clients_data]
-        local_n_samples = [client_data[1] for client_data in clients_data]
+        local_weights = self.gather_data(memo=f'local_updates_{self.n_rounds}', use_smpc=self.load('smpc'))
         self.log(f"Round {self.n_rounds} of local aggregating weights...")
-        global_weights = aggregate(local_weights, local_n_samples)
-        finish = self.n_rounds == self.load('config')['train']['n_rounds']
+        global_weights = aggregate(local_weights)
+        finish = self.n_rounds == self.load('config')['n_rounds']
         self.broadcast_data([global_weights, finish], memo=f'global_weights_{self.n_rounds + 1}', send_to_self=False)
         if finish:
             return 'Local Batch Sizes'
