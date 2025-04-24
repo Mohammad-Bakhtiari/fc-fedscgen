@@ -91,6 +91,40 @@ After the application completes its execution, the results are available in Feat
 
 Using the model and mean latent genes, the participants can correct their data locally.
 
+
+# Running FedscGen in featurecloud
+
+For more information check FeatureCloud stories on Medium: https://medium.com/developing-federated-applications-in-featurecloud
+
+## Prerequisites
+* Install featurecloud CLI:
+```shell
+pip install featurecloud
+```
+* Doewnbload and run the controller
+```shell
+featurecloud controller start --data-dir <path_to_data_dir>
+```
+
+Please be mindful that all the data used for simulation of FedscGen should be placed in the data directory where each client should have a folder in the data directory.
+For the sample data, please just copy the `data` folder to the data directory. For projects (federated workflows) the data could be submitted to the workflow from any given local directory.
+
+Beware that FeatureCloud controller is not compatible with VPN connections on linuxx based systems due to docker limitations, please disconnect from it before starting the controller.
+
+Optional: We encourage you to create an account on FeatureCloud to be able to access to all the services, including federated projects for running real-world federated workflows.
+
+
+## testing mode
+FeatureCloud testbed is available for simulating federated scenarios with a given number of clients on local machine.
+
+without login the app image name does not appear. in this case please use featurecloud.ai/fedscgen to run the app in testing mode. 
+```shell
+docker pull featurecloud/fedscgen:latest
+```
+
+## Federated Workflows
+To run the FedscGen app in a federated workflow, you need to create a project and add the app to it. Alternatively, you can use the FedscGen workflow template [here](https://featurecloud.ai/workflow/51). 
+
 ## Troubleshooting and Support
 
 If you encounter any issues, first ensure that your config.yaml is properly formatted and that all paths and keys are correct. For additional support, contact mohammad.bakhtiari@uni-hamburg.de.
