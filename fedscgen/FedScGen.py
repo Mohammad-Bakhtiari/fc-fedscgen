@@ -38,12 +38,9 @@ class ScGen(CustomScGen):
     """
 
     def __init__(self, init_model_path: str, ref_model_path: str, adata: AnnData, hidden_layer_sizes: list,
-                 z_dimension: int, batch_key, cell_key, lr, epoch, batch_size, stopping, overwrite, device):
+                 z_dimension: int, batch_key, cell_key, train_hyperparam, overwrite, device):
         super().__init__(adata, hidden_layer_sizes, z_dimension, device=device)
-        self.stopping = stopping
-        self.lr = lr
-        self.epoch = epoch
-        self.batch_size = batch_size
+        self.train_hyperparam = train_hyperparam
         self.ref_model_path = ref_model_path
         self.batch_key = batch_key
         self.cell_key = cell_key
@@ -66,7 +63,7 @@ class ScGen(CustomScGen):
         if self.source is not None:
             all_data = deepcopy(self.adata)
             self.adata = self.source
-        self.train(n_epochs=self.epoch, early_stopping_kwargs=self.stopping, lr=self.lr, batch_size=self.batch_size)
+        self.train(**self.train_hyperparam)
         if self.source is not None:
             corrected = remove_batch_effect(self.source)
             plot(corrected, plot_name="_source_corrected.png")
@@ -121,12 +118,14 @@ class FedScGen(ScGen):
         Remove the batch effect from the dataset
     """
 
-    def __init__(self, init_model_path=None, **kwargs):
+    def __init__(self, n_total_samples, init_model_path=None, smpc=False, **kwargs):
         super().__init__(init_model_path, **kwargs)
         self.unique_cell_types = np.unique(self.adata.obs[self.cell_key])
         self.adata_latent = None
         self.round = 0
         self.n_samples = self.adata.X.shape[0]
+        self.sample_ration = self.n_samples / n_total_samples
+        self.smpc = smpc
 
     def local_update(self, global_weights):
         """ Update the local model with global weights
@@ -141,8 +140,8 @@ class FedScGen(ScGen):
         """
         self.round += 1
         self.set_weights(global_weights)
-        self.train(n_epochs=self.epoch, early_stopping_kwargs=self.stopping, lr=self.lr, batch_size=self.batch_size)
-        return self.get_weights(), self.n_samples
+        self.train(**self.train_hyperparam)
+        return self.get_local_updates()
 
     def find_batch_size(self):
         """ Find the number of cells in each batch
@@ -285,6 +284,22 @@ class FedScGen(ScGen):
             corrected.obsm["latent_corrected"] = self.get_latent(corrected.X)
         return corrected
 
+    def get_local_updates(self):
+        """Get the local updates as pure Python lists of floats (no tensors or numpy arrays).
+
+        Returns
+        -------
+        list of list of float : local weights multiplied by sample ratio
+        """
+        weights = list(self.model.parameters())
+        weights = [
+            (param.data.clone() * self.sample_ration).detach().cpu().tolist()
+            for param in weights
+        ]
+        return weights
+
+
+
     def get_weights(self):
         """ Get the weights of the model
         Returns
@@ -294,14 +309,31 @@ class FedScGen(ScGen):
         """
         return self.model.state_dict()
 
-    def set_weights(self, state_dict):
-        """ Set the weights of the model
+    def set_weights(self, params):
+        """Set the weights of the model.
+
         Parameters
         ----------
-        state_dict: dict
-            The weights of the model
+        params : dict, list of torch.Tensor, or list of list of floats
+            The weights to be set. Can be:
+            - a state_dict (dict of named tensors),
+            - a list of torch.Tensor (for direct copy),
+            - or a list of list of floats (from aggregate()).
         """
         with torch.no_grad():
-            for name, param in self.model.named_parameters():
-                if name in state_dict:
-                    param.data.copy_(state_dict[name].to(param.device))
+            if isinstance(params, dict):
+                model_dict = self.model.state_dict()
+                assert len(params) == len(model_dict), \
+                    f"Number of parameters in state_dict ({len(params)}) does not match model ({len(model_dict)})"
+                for name, param in self.model.named_parameters():
+                    assert name in params, f"Parameter '{name}' not found in state_dict"
+                    param.data.copy_(params[name].to(param.device))
+            else:
+                model_params = list(self.model.parameters())
+                assert len(params) == len(model_params), \
+                    f"Number of parameters ({len(params)}) does not match model ({len(model_params)})"
+                for param, value in zip(model_params, params):
+                    if isinstance(value, list):
+                        value = torch.tensor(value)  # convert list of floats to tensor
+                    param.data.copy_(value.to(param.device))
+
