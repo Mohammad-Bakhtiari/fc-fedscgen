@@ -500,12 +500,29 @@ def calc_obsm_pca(adata_file_paths, n_components=50, common_space=False):
     return adata_files
 
 
-def aggregate(state_dicts, n_samples):
-    sample_ratios = [n / sum(n_samples) for n in n_samples]
-    global_weights = {}
-    for param in state_dicts[0].keys():
-        global_weights[param] = torch.stack(
-            [state_dicts[i][param] * sample_ratios[i] for i in range(len(state_dicts))]).sum(0)
+def aggregate(local_weights):
+    """Aggregate local weights (lists of floats) into global weights (also lists of floats).
+
+    Parameters
+    ----------
+    local_weights : list of list of list of float
+        Outer list over clients, inner list over model parameters, innermost list over flattened values.
+
+    Returns
+    -------
+    list of list of float
+        Aggregated global weights as lists of floats.
+    """
+    n_clients = len(local_weights)
+    n_layers = len(local_weights[0])
+    global_weights = []
+
+    for i in range(n_layers):
+        # Convert each client's ith layer to tensor for aggregation
+        stacked = torch.stack([torch.tensor(local_weights[c][i]) for c in range(n_clients)])
+        summed = stacked.sum(0)
+        global_weights.append(summed.tolist())  # Back to list of floats
+
     return global_weights
 
 
