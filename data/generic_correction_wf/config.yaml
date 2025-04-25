@@ -1,0 +1,12 @@
+fedscgen:
+  workflow: "correction" # train or correction
+  data:
+    adata: MHSPC.h5ad
+    batch_key: batch
+    cell_key: cell_type
+
+  model:
+    init_model: trained_model
+    ref_model: model.pth
+    hidden_layer_sizes: "800,800"
+    z_dimension: 10
