@@ -1,15 +1,27 @@
 # FeatureCloud FedscGen app
 
-## Introduction
+FedscGen is a federated application developed for the [FeatureCloud](featurecloud.ai) platform. It enables privacy-preserving, collaborative training and correction workflows for single-cell genomic data analysis. FedscGen allows distributed machine learning without sharing raw data between participants.
 
-The FedscGen is a federated application designed for the FeatureCloud platform, enabling collaborative training and correction workflows for single-cell genomic data analysis while preserving data privacy. It facilitates distributed machine learning without sharing raw data among participants.
-Installation and Requirements
+📄 The preprint "FedscGen: privacy-aware federated batch effect correction of single-cell RNA sequencing data" is available on 🔗 [ResearchSquare]( https://www.researchsquare.com/article/rs-4807285/v1).
 
-Before running FedScGen, ensure that you have installed Python 3.x and the FeatureCloud app library. You may also need additional libraries specific to federated learning and data handling; please refer to our installation guide for detailed steps and requirements.
-Configuration
+💻 To reproduce the results, visit the official GitHub repository: 🔗 [GitHub – FedscGen](https://github.com/Mohammad-Bakhtiari/FedscGen)
 
-The application can be configured using the provided config.yaml file. Here is an overview of the configuration options available:
 
+<a href="https://featurecloud.ai/app/fedscgen" target="_blank"> <img src="https://featurecloud.ai/assets/fc_logo.svg" alt="FeatureCloud Logo" width="160"/> </a> The FedscGen app is publicly available in the FeatureCloud App Store for real-world federated workflows: 🔗 [FeatureCloud App Store – FedscGen](https://featurecloud.ai/app/fedscgen)
+
+
+## 📦 Installation and Requirements
+
+Before running FedscGen, ensure you have the following installed:
+
+  * Python 3.7 or higher
+  * FeatureCloud CLI
+
+For more information on the requirements, please refer to the 🔗 [FeatureCloud Medium Stories](https://medium.com/developing-federated-applications-in-featurecloud)
+
+## ⚙️ Configuration
+
+Configure the application using the provided `config.yaml` file. Below is an overview of the available options:
 ```yaml
 fedscgen:
   workflow: "train" # Set to 'train' for training the model and 'correction' for data correction.
@@ -17,7 +29,8 @@ fedscgen:
     adata: raw.h5ad # The path to the input data file in .h5ad format.
     batch_key: batch # Key for batch information in the input data.
     cell_key: cell_type # Key for cell type information in the input data.
-
+  smpc: True # Set to True for secure multi-party computation.
+  n_rounds: 2 # Number of rounds for federated learning.
   model:
     init_model: None # Path to the initial model; set to None to start from scratch.
     ref_model: model.pth # Path to the reference model used for correction.
@@ -26,105 +39,164 @@ fedscgen:
 
   train:
     lr: 0.01 # Learning rate for the training.
-    epoch: 3 # Number of epochs for each training round.
+    n_epochs: 3 # Number of epochs for each training round.
     batch_size: 32 # Size of the batches for training.
-    early_stopping: # Configuration for early stopping.
-      early_stopping_metric: "val_loss" # Metric used for early stopping.
-      threshold: 0 # Threshold for the early stopping metric.
-      reduce_lr: True # Whether to reduce learning rate on plateau.
-      lr_patience: 13 # Number of epochs to wait before reducing lr.
-      lr_factor: 0.1 # Factor by which the lr will be reduced.
-    n_rounds: 2 # Number of federated learning rounds.
+    
 ```
+## 🧪 Sample Data and Workflows
+We provided a sample data to run FedscGen in [FeatureCloud testbed](https://featurecloud.ai/development/test) with two clients.
+The sample data contains Mouse Haematopoietic Stem and Progenitor Cells (MHSPC) dataset with two batches: 
+* [`SMART-seq2`](data/c1/MHSPC.h5ad): 1920 cells
+* [`MARS-seq`](data/c2/MHSPC.h5ad): 2729
+Also the entire dataset is available in the [`MouseHematopoieticStemProgenitorCells.h5ad`](data/MouseHematopoieticStemProgenitorCells.h5ad) file.
+```shell
+data/
+├── c1
+│   └── MHSPC.h5ad
+├── c2
+│   └── MHSPC.h5ad
+├── generic_correction_wf
+│   ├── config.yaml
+│   └── trained model
+│       ├── attr.pkl
+│       ├── model_params.pt
+│       └── var_names.csv
+├── generic_train_wf
+│   ├── config.yaml
+│   └── model
+│       ├── attr.pkl
+│       ├── model_params.pt
+│       └── var_names.csv
+└── MouseHematopoieticStemProgenitorCells.h5ad
 
-Each option is crucial for customizing the behavior of the FedScGen app. Ensure you set these options in accordance with your data and desired model performance.
-Usage
+```
+### 🧠 Train Workflow
+The sample data includes a dedicated generic configuration for FedscGen train workflow.
+The [configuration file](data/generic_train_wf/config.yaml) trained the FedscGen model for two communication rounds and one local epoch using SMPC.
+At the last state, the app outputs the trined model and mean latent genes beside the corrected local data. The trained model could be used as a reference model for the correction workflow.
 
-To run the FedScGen application with sample data:
-Ensure you have the sample data in .h5ad format and a reference model if required.
-Configure your config.yaml file according to your needs.
-Execute the FedScGen application through the FeatureCloud platform, following the platform's guidelines for running apps.
+### 🧹 Correction workflow
+Similar to train workflow, the sample data includes a dedicated generic configuration for FedscGen correction workflow.
+The [configuration file](data/generic_correction_wf/config.yaml) corrects the local data using the trained model and th e mean latent genes. The app outputs the corrected data and the mean latent genes for each cell type.
+Although the correction workflow can support new datasets to update mean latent genes, the provided sample does not include additional studies. The correction only uses the existing model and dominant batches.
 
-## State Diagram and Workflow
 
-The FedscGen application workflow is represented by a state diagram, indicating the sequence of states that the application may enter during its execution. The following state diagram illustrates the various stages of the application's lifecycle:
+### 🚀 Usage
+
+To run FedscGen with sample data:
+* Ensure your data is in .h5ad format.
+* Update the config.yaml file as needed.
+* Run the app using the FeatureCloud platform by following the app execution steps defined [here](https://medium.com/developing-federated-applications-in-featurecloud/run-an-app-in-fc-test-bed-b4b0ecae08b0).
+
+
+## 🧭 State Diagram
+
+FedscGen's lifecycle is driven by a state machine. The state diagram below outlines key stages:
 
 ![state_diagram.png](./state_diagram.png)
 
-State Diagram Legend:
+Legend
 
-    Red Arrows: Transitions triggered by the coordinator.
-    Blue Arrows: Transitions initiated by participants.
-    Purple Arrows: Transitions relevant to both coordinator and participants.
+    🔴 Red: Coordinator states and Coordinator-triggered transitions
 
-### State Descriptions
+    🔵 Blue: Participant states and Participant-triggered transitions
 
-Here we describe each state, aligned with the states.py script:
+    🟣 Purple: Shared states and transitions
 
-#### Training Workflow:
-* initial State: Sets up the necessary environment and variables to begin the federated process.
-* Local Training State: Participants train their local models using their data.
-* Model Aggregation State: Coordinator aggregates the local models to improve the global model.
-* Local Batch Sizes: All clients report their batch sizes for all locally available cell types to the coordinator.
-* Dominant Batches: Coordinator determines the dominant batch size among all clients for each cell type.
-* Latent Genes: All clients share the mean latent genes for the cell types with dominant batch.
-* Aggregated Latent Genes: Coordinator aggregates the latent genes into global mean latent genes.
-* Write results: Clients correct their data using the global mean latent genes and the trained model.
+🐧 Note: the states and transitiuons could be dedicated to one of the roles or both. For more information, please check [FeatureCloud roles](https://github.com/FeatureCloud/FeatureCloud/tree/master/FeatureCloud/app/engine#roles).
 
-#### Correction Workflow:
-* initial State: Sets up the necessary environment and variables to begin the correction process.
-* Dominant Batches: Coordinator determines the dominant batch size among all clients for each cell type.
-* Latent Genes: All clients share the mean latent genes for the cell types with dominant batch.
-* Aggregated Latent Genes: Coordinator aggregates the latent genes into global mean latent genes.
-* Write results: Clients correct their data using the global mean latent genes and the trained model.
+#### 🧪 Training Workflow States
+
+* initial: Environment and variables setup
+* Local Training: Clients train models on local data
+* Model Aggregation: Coordinator aggregates client models
+* Local Batch Sizes: Clients report cell-type-wise batch sizes
+* Dominant Batches: Coordinator identifies dominant batch per cell type
+* Latent Genes: Clients share mean latent genes
+* Aggregated Latent Genes: Coordinator computes global latent means
+* Write Results: Clients correct data using global means and the model
+
+#### 🧹 Correction Workflow States
+Same as training workflow, but without the local training and model aggregation states. The states are as follows:
+* initial: Environment setup for correction
+* Dominant Batches
+* Latent Genes
+* Aggregated Latent Genes
+* Write Results
  
-
-The transitions between these states are handled automatically by the FedscGen application based on the conditions met during the execution.
-
-
-## Output
-After the application completes its execution, the results are available in FeatureCloud platform which includes the following items:
-
-* Corrected data: The corrected data in `H5Ad` format.
-* Trained model: The trained model in `pth` format.
-* Mean latent genes: The mean latent genes for each cell type in `csv` format.
-
-Using the model and mean latent genes, the participants can correct their data locally.
+Transitions are handled automatically by the application.
 
 
-# Running FedscGen in featurecloud
+## 📤 Output
 
-For more information check FeatureCloud stories on Medium: https://medium.com/developing-federated-applications-in-featurecloud
+Upon completion, FeatureCloud provides:
 
-## Prerequisites
-* Install featurecloud CLI:
+    ✅ Corrected data in .h5ad format
+
+    ✅ Trained model in .pth format
+
+    ✅ Mean latent genes in .csv format
+
+These outputs allow clients to locally apply corrections using shared parameters.
+
+
+## 🛠 Running FedscGen on FeatureCloud
+
+### Prerequisites
+
+Install FeatureCloud CLI:
 ```shell
 pip install featurecloud
 ```
-* Doewnbload and run the controller
+
+Start the controller:
 ```shell
 featurecloud controller start --data-dir <path_to_data_dir>
 ```
+⚠️ Each client should have its own folder inside the data directory. For demo data, copy the provided data/ folder directly.
 
-Please be mindful that all the data used for simulation of FedscGen should be placed in the data directory where each client should have a folder in the data directory.
-For the sample data, please just copy the `data` folder to the data directory. For projects (federated workflows) the data could be submitted to the workflow from any given local directory.
+🐧 Note: FeatureCloud controller may not work while connected to a VPN on Linux due to Docker limitations.
 
-Beware that FeatureCloud controller is not compatible with VPN connections on linuxx based systems due to docker limitations, please disconnect from it before starting the controller.
-
-Optional: We encourage you to create an account on FeatureCloud to be able to access to all the services, including federated projects for running real-world federated workflows.
+Optional: [Create an account](https://featurecloud.ai/account?p=signup) on FeatureCloud to access full functionality and run real-world federated workflows.
 
 
-## testing mode
-FeatureCloud testbed is available for simulating federated scenarios with a given number of clients on local machine.
+### 🧪 Testing Mode (Local Simulation)
 
-without login the app image name does not appear. in this case please use featurecloud.ai/fedscgen to run the app in testing mode. 
+FeatureCloud's testbed allows local simulation of federated scenarios:
+
+Download the FedscGen app image:
 ```shell
+
 docker pull featurecloud/fedscgen:latest
 ```
 
-## Federated Workflows
-To run the FedscGen app in a federated workflow, you need to create a project and add the app to it. Alternatively, you can use the FedscGen workflow template [here](https://featurecloud.ai/workflow/51). 
+🔄 Federated Workflows
 
-## Troubleshooting and Support
+To run FedscGen in a real-world federated setting across multiple institutions:
 
-If you encounter any issues, first ensure that your config.yaml is properly formatted and that all paths and keys are correct. For additional support, contact mohammad.bakhtiari@uni-hamburg.de.
+1. Create a Project
+    Log in to FeatureCloud and [create a new project](https://featurecloud.ai/projects).
+2. Add the FedscGen App
+    You can:
+        * Manually search for and add the [FedscGen app](https://featurecloud.ai/app/fedscgen) from the app store, or
+        * Use the predefined [FedscGen workflow template](https://featurecloud.ai/workflow/51) to get started quickly. 
+3. Assign Clients 
+   Invite collaborators or link local client instances to participate in the federated workflow. 
+4. Submit Data 
+   Each client can upload data independently, or reference their local data paths as configured in the FeatureCloud client setup.
+5. Run the Workflow
+   Once all clients are connected and the app is configured, start the workflow to begin federated training or correction.
+
+📝 For a detailed walkthrough with visuals, check out this helpful guide:
+👉 [Running Federated Machine Learning Workflows in FeatureCloud (Medium)](https://medium.com/developing-federated-applications-in-featurecloud/running-federated-machine-learning-workflows-in-featurecloud-952f90ece166)
+
+
+
+🧰 Troubleshooting and Support
+
+If you encounter issues:
+
+* Check that config.yaml is correctly formatted
+* Verify all file paths and keys are valid
+
+📬 Contact: mohammad.bakhtiari@uni-hamburg.de
