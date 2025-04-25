@@ -7,7 +7,7 @@ FedscGen is a federated application developed for the [FeatureCloud](featureclou
 💻 To reproduce the results, visit the official GitHub repository: 🔗 [GitHub – FedscGen](https://github.com/Mohammad-Bakhtiari/FedscGen)
 
 
-<a href="https://featurecloud.ai/app/fedscgen" target="_blank"> <img src="https://featurecloud.ai/assets/fc_logo.svg" alt="FeatureCloud Logo" width="160"/> </a> The FedscGen app is publicly available in the FeatureCloud App Store for real-world federated workflows: 🔗 [FeatureCloud App Store – FedscGen](https://featurecloud.ai/app/fedscgen)
+<a href="https://featurecloud.ai/app/fedscgen" target="_blank"> <img src="https://avatars.githubusercontent.com/u/69000142?s=200&v=4" alt="FeatureCloud Logo" width="20"/> </a> The FedscGen app is publicly available in the FeatureCloud App Store for real-world federated workflows: 🔗 [FeatureCloud App Store – FedscGen](https://featurecloud.ai/app/fedscgen)
 
 
 ## 📦 Installation and Requirements
