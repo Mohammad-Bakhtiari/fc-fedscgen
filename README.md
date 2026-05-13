@@ -2,7 +2,7 @@
 
 FedscGen is a federated application developed for the [FeatureCloud](featurecloud.ai) platform. It enables privacy-preserving, collaborative training and correction workflows for single-cell genomic data analysis. FedscGen allows distributed machine learning without sharing raw data between participants.
 
-📄 The preprint "FedscGen: privacy-aware federated batch effect correction of single-cell RNA sequencing data" is available on 🔗 [ResearchSquare]( https://www.researchsquare.com/article/rs-4807285/v1).
+📄 The publication "FedscGen: privacy-aware federated batch effect correction of single-cell RNA sequencing data" is available on 🔗 [here](https://link.springer.com/article/10.1186/s13059-025-03684-6).
 
 💻 To reproduce the results, visit the official GitHub repository: 🔗 [GitHub – FedscGen](https://github.com/Mohammad-Bakhtiari/FedscGen)
 
